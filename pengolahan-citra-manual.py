@@ -1,111 +1,146 @@
-# Manual Image Processing Functions without Libraries
 
-# Load a simple PPM image file
-def load_ppm(file_path):
-    with open(file_path, 'r') as f:
-        assert f.readline().strip() == 'P3'  # P3 indicates ASCII format
-        width, height = map(int, f.readline().strip().split())
-        max_val = int(f.readline().strip())  # typically 255
-        pixels = []
-        for _ in range(height):
-            row = []
-            for _ in range(width):
-                r = int(f.readline().strip())
-                g = int(f.readline().strip())
-                b = int(f.readline().strip())
-                row.append([r, g, b])
-            pixels.append(row)
-    return pixels, width, height, max_val
+import streamlit as st
+from PIL import Image, ImageOps, ImageFilter
+import numpy as np
+from matplotlib import pyplot as plt
+import os
+from io import BytesIO
 
-# Save image data to PPM
-def save_ppm(filename, pixels, width, height, max_val=255):
-    with open(filename, 'w') as f:
-        f.write("P3\n")
-        f.write(f"{width} {height}\n")
-        f.write(f"{max_val}\n")
-        for row in pixels:
-            for pixel in row:
-                f.write(f"{pixel[0]}\n{pixel[1]}\n{pixel[2]}\n")
+# Fungsi untuk menampilkan gambar dengan judul
+def tampilkan_judul(citra, judul):
+    st.image(citra, caption=judul, use_column_width=True)
 
-# Invert colors
-def invert_colors(pixels):
-    return [[[255 - p for p in pixel] for pixel in row] for row in pixels]
+# Fungsi untuk membuat dan menampilkan histogram sebagai bar plot
+def tampilkan_histogram(citra):
+    fig, ax = plt.subplots()
+    if len(citra.shape) == 3:  # Histogram untuk gambar berwarna
+        color = ('b', 'g', 'r')
+        for i, col in enumerate(color):
+            hist = np.histogram(citra[:, :, i], bins=256, range=(0, 256))[0]
+            ax.bar(np.arange(256), hist, color=col, alpha=0.5, width=1.0)
+        ax.set_title('Histogram (RGB)')
+    else:  # Histogram untuk gambar grayscale
+        hist, _ = np.histogram(citra.flatten(), bins=256, range=(0, 256))
+        ax.bar(np.arange(256), hist, color='black', alpha=0.7, width=1.0)
+        ax.set_title('Histogram (Grayscale)')
+    ax.set_xlim([0, 256])
+    st.pyplot(fig)
 
-# Grayscale conversion
-def grayscale(pixels):
-    return [[[int(sum(pixel) / 3)] * 3 for pixel in row] for row in pixels]
+# Fungsi untuk mengkonversi array numpy menjadi bytes
+def convert_image_to_bytes(image_array):
+    img = Image.fromarray(image_array.astype(np.uint8))
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    byte_im = buf.getvalue()
+    return byte_im
 
-# Rotate image by 90 degrees
-def rotate_image(pixels, width, height, angle=90):
-    if angle == 90:
-        rotated = [[pixels[height - x - 1][y] for x in range(height)] for y in range(width)]
-        return rotated, height, width
-    elif angle == 180:
-        rotated = [[pixels[height - y - 1][width - x - 1] for x in range(width)] for y in range(height)]
-        return rotated, width, height
-    elif angle == 270:
-        rotated = [[pixels[x][width - y - 1] for x in range(height)] for y in range(width)]
-        return rotated, height, width
-    return pixels, width, height
+# Judul Aplikasi
+st.title("Pengolahan Citra Kelompok Esigma")
 
-# Histogram equalization
-def histogram_equalization(pixels):
-    flat_pixels = [p[0] for row in pixels for p in row]  # Flatten only the red channel (assuming grayscale)
-    hist = [0] * 256
-    for p in flat_pixels:
-        hist[p] += 1
-    cumulative_hist = [sum(hist[:i + 1]) for i in range(256)]
-    scale_factor = 255 / cumulative_hist[-1]
-    lookup_table = [int(cumulative_hist[i] * scale_factor) for i in range(256)]
-    return [[[lookup_table[p[0]]] * 3 for p in row] for row in pixels]
+# Input Upload Gambar
+uploaded_file = st.file_uploader("Upload gambar", type=["jpg", "png", "jpeg"])
 
-# Black & White Threshold
-def black_white(pixels, threshold=127):
-    return [[[255, 255, 255] if sum(pixel) / 3 > threshold else [0, 0, 0] for pixel in row] for row in pixels]
+if uploaded_file is not None:
+    # Membaca gambar dengan Pillow
+    img = Image.open(uploaded_file)
+    img_np = np.array(img)
 
-# Simple Box Blur (Gaussian Approximation)
-def blur_image(pixels, width, height, radius=1):
-    def get_average(x, y):
-        acc = [0, 0, 0]
-        count = 0
-        for dx in range(-radius, radius + 1):
-            for dy in range(-radius, radius + 1):
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < height and 0 <= ny < width:
-                    count += 1
-                    for c in range(3):
-                        acc[c] += pixels[nx][ny][c]
-        return [int(a / count) for a in acc]
-    return [[get_average(x, y) for y in range(width)] for x in range(height)]
+    # Menampilkan gambar dan histogram asli
+    st.subheader("Gambar Asli dan Histogram")
+    col1, col2 = st.columns(2)
+    with col1:
+        tampilkan_judul(img_np, "Gambar Asli")
+    with col2:
+        tampilkan_histogram(img_np)
 
-# Main Function
-if __name__ == "__main__":
-    # Load image (using PPM format)
-    input_file = "example.ppm"  # Replace with your PPM file
-    pixels, width, height, max_val = load_ppm(input_file)
+    # Sidebar untuk memilih mode pemrosesan gambar
+    st.sidebar.subheader("Pilih Mode Pengolahan Citra")
+    opsi = st.sidebar.selectbox("Mode Pengolahan", (
+        "Citra Negatif", "Grayscale", "Rotasi", 
+        "Histogram Equalization", "Black & White", "Smoothing (Gaussian Blur)", "Channel RGB"
+    ))
 
-    # Invert Colors
-    inverted_image = invert_colors(pixels)
-    save_ppm("output_inverted.ppm", inverted_image, width, height)
+    # Input untuk threshold jika opsi "Black & White" dipilih
+    if opsi == "Black & White":
+        threshold = st.sidebar.number_input("Threshold Level", min_value=0, max_value=255, value=127)
 
-    # Convert to Grayscale
-    grayscale_image = grayscale(pixels)
-    save_ppm("output_grayscale.ppm", grayscale_image, width, height)
+    # Button untuk memilih derajat rotasi jika opsi "Rotasi" dipilih
+    if opsi == "Rotasi":
+        rotasi = st.sidebar.radio("Pilih Derajat Rotasi", (90, 180, 270))
 
-    # Rotate Image
-    rotated_image, rotated_width, rotated_height = rotate_image(pixels, width, height, 90)
-    save_ppm("output_rotated.ppm", rotated_image, rotated_width, rotated_height)
+    # Field input untuk blur radius jika opsi "Smoothing (Gaussian Blur)" dipilih
+    if opsi == "Smoothing (Gaussian Blur)":
+        blur_radius = st.sidebar.text_input("Masukkan Blur Radius", value="2.0")
+        try:
+            blur_radius = float(blur_radius)
+        except ValueError:
+            st.sidebar.error("Masukkan nilai numerik yang valid untuk blur radius.")
+            blur_radius = 10  # Default value jika input salah
 
-    # Histogram Equalization
-    equalized_image = histogram_equalization(pixels)
-    save_ppm("output_equalized.ppm", equalized_image, width, height)
+    # Pilihan channel jika opsi "Channel RGB" dipilih
+    if opsi == "Channel RGB":
+        channel = st.sidebar.selectbox("Pilih Channel", ("Red", "Green", "Blue"))
 
-    # Black and White Threshold
-    bw_image = black_white(pixels, threshold=127)
-    save_ppm("output_bw.ppm", bw_image, width, height)
+    # Fungsi untuk mengolah gambar berdasarkan opsi
+    def olah_gambar(img_np, opsi):
+        if opsi == "Citra Negatif":
+            return np.clip(255 - img_np.astype(np.uint8), 0, 255)
+        elif opsi == "Grayscale":
+            return np.array(ImageOps.grayscale(Image.fromarray(img_np.astype(np.uint8))))
+        elif opsi == "Rotasi":
+            if rotasi == 90:
+                return np.rot90(img_np, 1)
+            elif rotasi == 180:
+                return np.rot90(img_np, 2)
+            elif rotasi == 270:
+                return np.rot90(img_np, 3)
+        elif opsi == "Histogram Equalization":
+            img_rgb = Image.fromarray(img_np.astype(np.uint8))
+            r, g, b = img_rgb.split()
+            r_eq = ImageOps.equalize(r)
+            g_eq = ImageOps.equalize(g)
+            b_eq = ImageOps.equalize(b)
+            img_eq = Image.merge("RGB", (r_eq, g_eq, b_eq))
+            return np.array(img_eq)
+        elif opsi == "Black & White":
+            gray = np.array(ImageOps.grayscale(Image.fromarray(img_np.astype(np.uint8))))
+            bw = np.where(gray > threshold, 255, 0).astype(np.uint8)
+            return bw
+        elif opsi == "Smoothing (Gaussian Blur)":
+            return np.array(Image.fromarray(img_np.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius=blur_radius)))
+        elif opsi == "Channel RGB":
+            # Preserve color of the selected channel, set other channels to zero
+            img_channel = np.zeros_like(img_np)
+            channel_map = {"Red": 0, "Green": 1, "Blue": 2}
+            img_channel[:, :, channel_map[channel]] = img_np[:, :, channel_map[channel]]
+            return img_channel
 
-    # Blur Image
-    blurred_image = blur_image(pixels, width, height, radius=1)
-    save_ppm("output_blurred.ppm", blurred_image, width, height)
+    # Pemrosesan gambar berdasarkan opsi
+    hasil = olah_gambar(img_np, opsi)
 
-    print("Processing complete. All processed images saved as .ppm files.")
+    # Menampilkan hasil pemrosesan dan histogram
+    st.subheader(f"Hasil - {opsi}")
+    col1, col2 = st.columns(2)
+    with col1:
+        tampilkan_judul(hasil, f"Hasil - {opsi}")
+    with col2:
+        tampilkan_histogram(hasil)
+
+    # Membuat nama file untuk hasil yang akan diunduh
+    original_filename = uploaded_file.name
+    ext = os.path.splitext(original_filename)[1]
+    nama_file_simpan = f"{os.path.splitext(original_filename)[0]}-{opsi.lower().replace(' ', '_')}{ext}"
+
+    # Konversi hasil menjadi bytes
+    hasil_bytes = convert_image_to_bytes(hasil)
+
+    # Tombol download
+    st.download_button(
+        label=f"Download {opsi}",
+        data=hasil_bytes,
+        file_name=nama_file_simpan,
+        mime=f"image/{ext[1:]}"
+    )
+
+else:
+    st.write("Silakan upload gambar terlebih dahulu.")
